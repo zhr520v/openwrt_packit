@@ -4,7 +4,6 @@ BLANK1=68
 BOOT=512
 BLANK2=184
 ROOT1=720
-BLANK3=0
 
 TARGET_SHARED_FSTYPE=f2fs
 BACKUP_IMG="/root/bootloader_backup.img"
@@ -238,12 +237,6 @@ dd if=/dev/zero of=/dev/${EMMC_NAME} bs=1M count=1 seek=$seek conv=fsync
 seek=$((start2 / 2048))
 dd if=/dev/zero of=/dev/${EMMC_NAME} bs=1M count=1 seek=$seek conv=fsync
 
-seek=$((start3 / 2048))
-dd if=/dev/zero of=/dev/${EMMC_NAME} bs=1M count=1 seek=$seek conv=fsync
-
-seek=$((start4 / 2048))
-dd if=/dev/zero of=/dev/${EMMC_NAME} bs=1M count=1 seek=$seek conv=fsync
-
 if [ "$MAINLINE_UBOOT" != "" ];then
     if [ -f "$MAINLINE_UBOOT" ];then
 	cat <<EOF
@@ -398,104 +391,85 @@ EOF
 	echo 
 fi
 
+# 修改以下部分
 echo "等待 rootfs 文件系统挂载 ... "
 i=1
 max_try=10
 while [ $i -le $max_try ]; do
-	mount -t btrfs -o compress=zstd /dev/${EMMC_NAME}p2 /mnt/${EMMC_NAME}p2 2>/dev/null
-	sleep 2
-	mnt=$(lsblk -l -o MOUNTPOINT | grep /mnt/${EMMC_NAME}p2)
-	if [ "$mnt" == "" ];then
-		if [ $i -lt $max_try ];then
-			echo "未挂载成功， 重试 ..."
-			i=$((i+1))
-		else
-			echo "不能挂载 rootfs 文件系统, 放弃!"
-			exit 1
-		fi
-	else
-		echo "挂载成功"
-		cd /mnt/${EMMC_NAME}p2
-		echo -n "创建 etc 子卷 ..."
-                btrfs subvolume create etc
-		echo -n "创建文件夹 ... "
-		mkdir -p .snapshots .reserved bin boot dev lib opt mnt overlay proc rom root run sbin sys tmp usr www
-		ln -sf lib/ lib64
-		ln -sf tmp/ var
-		echo "完成"
-		
-		COPY_SRC="root etc bin sbin lib opt usr www"
-		echo "复制数据 ... "
-		for src in $COPY_SRC;do
-			echo -n "复制 $src ... "
-			(cd / && tar cf - $src) | tar xmf -
-			sync
-			echo "完成"
-		done
-		rm -rf opt/docker && ln -sf /mnt/${EMMC_NAME}p4/docker/ opt/docker
-		rm -rf usr/bin/AdGuardHome && ln -sf /mnt/${EMMC_NAME}p4/AdGuardHome usr/bin/AdGuardHome
-		echo "复制完成"
-		
-		echo -n "编辑配置文件 ... "
-		cd /mnt/${EMMC_NAME}p2/root
-		rm -f install-to-emmc.sh update-to-emmc.sh
-		cd /mnt/${EMMC_NAME}p2/etc/rc.d
-		ln -sf ../init.d/dockerd S99dockerd
-		cd /mnt/${EMMC_NAME}p2/etc
-		cat > fstab <<EOF
-UUID=${ROOTFS1_UUID} / btrfs compress=zstd 0 1
+    mount -t ext4 /dev/${EMMC_NAME}p2 /mnt/${EMMC_NAME}p2 2>/dev/null
+    sleep 2
+    mnt=$(lsblk -l -o MOUNTPOINT | grep /mnt/${EMMC_NAME}p2)
+    if [ "$mnt" == "" ];then
+        if [ $i -lt $max_try ];then
+            echo "未挂载成功， 重试 ..."
+            i=$((i+1))
+        else
+            echo "不能挂载 rootfs 文件系统, 放弃!"
+            exit 1
+        fi
+    else
+        echo "挂载成功"
+        cd /mnt/${EMMC_NAME}p2
+        echo -n "创建文件夹 ... "
+        mkdir -p bin boot dev lib opt mnt overlay proc rom root run sbin sys tmp usr www
+        ln -sf lib/ lib64
+        ln -sf tmp/ var
+        echo "完成"
+        
+        COPY_SRC="root etc bin sbin lib opt usr www"
+        echo "复制数据 ... "
+        for src in $COPY_SRC;do
+            echo -n "复制 $src ... "
+            (cd / && tar cf - $src) | tar xmf -
+            sync
+            echo "完成"
+        done
+        echo "复制完成"
+        
+        echo -n "编辑配置文件 ... "
+        cd /mnt/${EMMC_NAME}p2/root
+        rm -f install-to-emmc.sh update-to-emmc.sh
+        cd /mnt/${EMMC_NAME}p2/etc/rc.d
+        ln -sf ../init.d/dockerd S99dockerd
+        cd /mnt/${EMMC_NAME}p2/etc
+        cat > fstab <<EOF
+UUID=${ROOTFS1_UUID} / ext4 defaults 0 1
 LABEL=${BOOT_LABEL} /boot vfat defaults 0 2
 #tmpfs /tmp tmpfs defaults,nosuid 0 0
 EOF
 
-        if [ $FLASH_MAINLINE_UBOOT -eq 1 ];then
-            echo "MAINLINE_UBOOT=${MAINLINE_UBOOT}" >> flippy-openwrt-release
-            echo "MAINLINE_UBOOT_MD5SUM=${MD5SUM}" >> flippy-openwrt-release
-        fi		
-		
-		cd /mnt/${EMMC_NAME}p2/etc/config
-		cat > fstab <<EOF
+        cd /mnt/${EMMC_NAME}p2/etc/config
+        cat > fstab <<EOF
 config global
-	option anon_swap '0'
-	option anon_mount '1'
-	option auto_swap '0'
-	option auto_mount '1'
-	option delay_root '5'
-	option check_fs '0'
+    option anon_swap '0'
+    option anon_mount '1'
+    option auto_swap '0'
+    option auto_mount '1'
+    option delay_root '5'
+    option check_fs '0'
 
 config mount
-	option target '/overlay'
-	option uuid '${ROOTFS1_UUID}'
-	option enabled '1'
-	option enabled_fsck '1'
-        option fstype 'btrfs'
-        option options 'compress=zstd'
+    option target '/overlay'
+    option uuid '${ROOTFS1_UUID}'
+    option enabled '1'
+    option enabled_fsck '1'
+    option fstype 'ext4'
 
 config mount
-	option target '/boot'
-	option label '${BOOT_LABEL}'
-	option enabled '1'
-	option enabled_fsck '0'
-        option fstype 'vfat'
-		
+    option target '/boot'
+    option label '${BOOT_LABEL}'
+    option enabled '1'
+    option enabled_fsck '0'
+    option fstype 'vfat'
 EOF
-                echo -n "创建初始 etc 快照 -> .snapshots/etc-000"
-		cd /mnt/${EMMC_NAME}p2 && \
-		btrfs subvolume snapshot -r etc .snapshots/etc-000
 
-		# 2021.04.01添加
-		# 强制锁定fstab,防止用户擅自修改挂载点
-		# 开启了快照功能之后，不再需要锁定fstab
-	        #cd /mnt/${EMMC_NAME}p2/etc/config && \
-		#chattr +ia fstab
-
-		cd /
-		umount -f /mnt/${EMMC_NAME}p2
-		break
-	fi
+        cd /
+        umount -f /mnt/${EMMC_NAME}p2
+        break
+    fi
 done
 echo "完成"
-echo 
+echo
 
 sync
 
