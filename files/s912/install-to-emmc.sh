@@ -5,8 +5,6 @@ BOOT=512
 BLANK2=184
 ROOT1=720
 BLANK3=0
-ROOT2=720
-BLANK4=0
 
 TARGET_SHARED_FSTYPE=f2fs
 BACKUP_IMG="/root/bootloader_backup.img"
@@ -197,17 +195,12 @@ done
 # Create new partition
 DST_TOTAL_MB=$((EMMC_SIZE/1024/1024))
 
+# 找到并替换以下部分
 start1=$(( BLANK1 * 2048 ))
 end1=$(( start1 + (BOOT * 2048) - 1 ))
 
 start2=$(( (BLANK2 * 2048) + end1 + 1 ))
-end2=$(( start2 + (ROOT1 * 2048) -1 ))
-
-start3=$(( (BLANK3 * 2048) + end2 + 1 ))
-end3=$(( start3 + (ROOT2 * 2048) -1 ))
-
-start4=$(( (BLANK4 * 2048) + end3 + 1 ))
-end4=$(( DST_TOTAL_MB * 2048 -1 ))
+end2=$(( DST_TOTAL_MB * 2048 -1 ))  # 利用剩余所有空间
 
 cat >> /tmp/fdisk.script <<EOF
 n
@@ -220,26 +213,11 @@ p
 2
 $start2
 $end2
-n
-p
-3
-$start3
-$end3
-n
-p
-$start4
-$end4
 t
 1
 c
 t
 2
-83
-t
-3
-83
-t
-4
 83
 w
 EOF
@@ -337,19 +315,14 @@ mkdir -p /mnt/${EMMC_NAME}p1
 sleep 2
 umount -f /mnt/${EMMC_NAME}p1 2>/dev/null
 
+# 找到并替换以下部分
 echo "创建 rootfs1 文件系统 ... "
 ROOTFS1_UUID=$(/usr/bin/uuidgen)
-mkfs.btrfs -f -U ${ROOTFS1_UUID} -L EMMC_ROOTFS1 -m single /dev/${EMMC_NAME}p2
+mkfs.ext4 -U ${ROOTFS1_UUID} -L EMMC_ROOTFS1 /dev/${EMMC_NAME}p2
 mkdir -p /mnt/${EMMC_NAME}p2
 sleep 2
 umount -f /mnt/${EMMC_NAME}p2 2>/dev/null
 
-echo "创建 rootfs2 文件系统 ... "
-ROOTFS2_UUID=$(/usr/bin/uuidgen)
-mkfs.btrfs -f -U ${ROOTFS2_UUID} -L EMMC_ROOTFS2 -m single /dev/${EMMC_NAME}p3
-mkdir -p /mnt/${EMMC_NAME}p3
-sleep 2
-umount -f /mnt/${EMMC_NAME}p3 2>/dev/null
 
 # 写入 boot 
 #if [ $K510 -eq 0 ] || [ $FLASH_MAINLINE_UBOOT -eq 1 ];then  # kernel version < 5.10 or flash_mainline_uboot = 1
@@ -523,54 +496,6 @@ EOF
 done
 echo "完成"
 echo 
-
-echo "创建共享文件系统 ... "
-cat <<EOF
-请选择共享文件系统的类型：
-------------------------------------------
-1. ext4 (默认的选项，适合一般用途)
-
-2. btrfs (对 ssd/mmc 有一定优化，
-          可延长 ssd/mmc 使用寿命，
-          具有众多现代文件系统特性, 
-          但速度稍慢)
-
-3. f2fs  (对 ssd/mmc 有专门的优化，
-          读写速度快，
-          且可延长 ssd/mmc 使用寿命，
-          但空间利用率稍低, 
-          且兼容性稍差)
-
-4. xfs   (非常优秀的文件系统，ext4的替代品)
-------------------------------------------
-EOF
-echo -ne "[1]\b\b"
-read sel
-case $sel in 
-        2) TARGET_SHARED_FSTYPE=btrfs;;
-	3) TARGET_SHARED_FSTYPE=f2fs;;
-	4) TARGET_SHARED_FSTYPE=xfs;;
-	*) TARGET_SHARED_FSTYPE=ext4;;
-esac
-
-mkdir -p /mnt/${EMMC_NAME}p4
-case $TARGET_SHARED_FSTYPE in
-	xfs) mkfs.xfs -f -L EMMC_SHARED /dev/${EMMC_NAME}p4
-	     mount -t xfs /dev/${EMMC_NAME}p4 /mnt/${EMMC_NAME}p4
-	     ;;
-      btrfs) mkfs.btrfs -f -L EMMC_SHARED -m single /dev/${EMMC_NAME}p4
-	     mount -t btrfs /dev/${EMMC_NAME}p4 /mnt/${EMMC_NAME}p4
-	     ;;
-       f2fs) mkfs.f2fs -f -l EMMC_SHARED /dev/${EMMC_NAME}p4
-	     mount -t f2fs /dev/${EMMC_NAME}p4 /mnt/${EMMC_NAME}p4
-	     ;;
-	  *) mkfs.ext4 -F -L EMMC_SHARED  /dev/${EMMC_NAME}p4
-	     mount -t ext4 /dev/${EMMC_NAME}p4 /mnt/${EMMC_NAME}p4
-	     ;;
-esac
-mkdir -p /mnt/${EMMC_NAME}p4/docker /mnt/${EMMC_NAME}p4/AdGuardHome
-echo "完成"
-echo
 
 sync
 
